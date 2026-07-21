@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Регистрация</title>
+    <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0a0a0f;
+            color: #f0f0f5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 24px;
+            padding: 48px;
+            width: 100%;
+            max-width: 420px;
+        }
+        h1 {
+            font-family: 'Unbounded', sans-serif;
+            font-size: 1.8rem;
+            font-weight: 900;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #6c3ce0, #e040fb, #00e5ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle { color: rgba(240,240,245,0.5); margin-bottom: 32px; font-size: 0.95rem; }
+        .field { margin-bottom: 20px; }
+        label { display: block; font-size: 0.85rem; color: rgba(240,240,245,0.6); margin-bottom: 6px; }
+        input {
+            width: 100%;
+            padding: 14px 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.04);
+            color: #f0f0f5;
+            font-size: 1rem;
+            font-family: 'Inter', sans-serif;
+            transition: border-color 0.3s;
+        }
+        input:focus { outline: none; border-color: #6c3ce0; }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #6c3ce0, #e040fb);
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-family: 'Inter', sans-serif;
+        }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(108,60,224,0.4); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .error { color: #ff4444; font-size: 0.85rem; margin-bottom: 16px; display: none; }
+        .link { text-align: center; margin-top: 20px; font-size: 0.9rem; color: rgba(240,240,245,0.5); }
+        .link a { color: #00e5ff; text-decoration: none; }
+        .link a:hover { text-decoration: underline; }
+        .logo { text-align: center; margin-bottom: 24px; }
+        .logo span { font-family: 'Unbounded', sans-serif; font-weight: 900; font-size: 2rem; background: linear-gradient(135deg, #6c3ce0, #e040fb); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo"><a href="/" style="text-decoration:none"><span>ДК</span></a></div>
+        <h1>Регистрация</h1>
+        <p class="subtitle">Создай аккаунт и участвуй</p>
+        <div class="error" id="error"></div>
+        <form id="form">
+            <div class="field">
+                <label>Имя пользователя</label>
+                <input type="text" id="username" placeholder="username" minlength="3" maxlength="20" required>
+            </div>
+            <div class="field">
+                <label>Email</label>
+                <input type="email" id="email" placeholder="email@example.com" required>
+            </div>
+            <div class="field">
+                <label>Пароль</label>
+                <input type="password" id="password" placeholder="минимум 6 символов" minlength="6" required>
+            </div>
+            <button type="submit" class="btn" id="submitBtn">Создать аккаунт</button>
+        </form>
+        <div class="link">Уже есть аккаунт? <a href="/login.html">Войти</a></div>
+    </div>
+    <script>
+        document.getElementById('form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errEl = document.getElementById('error');
+            const btn = document.getElementById('submitBtn');
+            errEl.style.display = 'none';
+            btn.disabled = true;
+            btn.textContent = 'Регистрация...';
+            try {
+                const res = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('username').value,
+                        email: document.getElementById('email').value,
+                        password: document.getElementById('password').value
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    window.location.href = '/';
+                } else {
+                    errEl.textContent = data.error;
+                    errEl.style.display = 'block';
+                }
+            } catch (err) {
+                errEl.textContent = 'Ошибка сети';
+                errEl.style.display = 'block';
+            }
+            btn.disabled = false;
+            btn.textContent = 'Создать аккаунт';
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Профиль</title>
+    <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: #0a0a0f; color: #f0f0f5; min-height: 100vh; }
+        nav { padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .logo { font-family: 'Unbounded', sans-serif; font-weight: 900; font-size: 1.2rem; background: linear-gradient(135deg, #6c3ce0, #e040fb); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .nav-links { display: flex; gap: 20px; list-style: none; }
+        .nav-links a { color: rgba(240,240,245,0.6); text-decoration: none; font-size: 0.9rem; }
+        .nav-links a:hover { color: #f0f0f5; }
+        .container { max-width: 600px; margin: 40px auto; padding: 0 20px; }
+        .profile-header { text-align: center; margin-bottom: 40px; }
+        .avatar { width: 100px; height: 100px; border-radius: 50%; background: linear-gradient(135deg, #6c3ce0, #e040fb); display: flex; align-items: center; justify-content: center; font-size: 2.5rem; font-weight: 900; margin: 0 auto 16px; font-family: 'Unbounded'; }
+        .username { font-family: 'Unbounded', sans-serif; font-size: 1.5rem; font-weight: 700; }
+        .role { display: inline-block; padding: 4px 12px; border-radius: 100px; font-size: 0.75rem; font-weight: 600; margin-top: 8px; }
+        .role.user { background: rgba(108,60,224,0.2); color: #6c3ce0; }
+        .role.admin { background: rgba(255,68,68,0.2); color: #ff4444; }
+        .stats { display: flex; gap: 24px; justify-content: center; margin: 20px 0; }
+        .stat { text-align: center; }
+        .stat-num { font-family: 'Unbounded'; font-size: 1.2rem; font-weight: 700; }
+        .stat-label { font-size: 0.75rem; color: rgba(240,240,245,0.5); }
+        .section { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 24px; margin-bottom: 20px; }
+        .section h3 { font-family: 'Unbounded'; font-size: 1rem; margin-bottom: 16px; }
+        textarea, input[type="text"] {
+            width: 100%; padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.04); color: #f0f0f5; font-family: 'Inter'; font-size: 0.95rem; resize: vertical;
+        }
+        textarea:focus, input:focus { outline: none; border-color: #6c3ce0; }
+        .btn {
+            padding: 12px 24px; border: none; border-radius: 10px;
+            background: linear-gradient(135deg, #6c3ce0, #e040fb); color: white;
+            font-weight: 600; cursor: pointer; transition: all 0.3s; font-family: 'Inter';
+        }
+        .btn:hover { transform: translateY(-2px); }
+        .btn-danger { background: linear-gradient(135deg, #ff4444, #cc0000); }
+        .btn-sm { padding: 8px 16px; font-size: 0.85rem; }
+        .messages { max-height: 300px; overflow-y: auto; }
+        .msg { padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .msg-from { font-weight: 600; font-size: 0.85rem; color: #00e5ff; }
+        .msg-text { margin-top: 4px; font-size: 0.9rem; color: rgba(240,240,245,0.7); }
+        .msg-time { font-size: 0.75rem; color: rgba(240,240,245,0.3); margin-top: 4px; }
+        .success { color: #00e5ff; font-size: 0.85rem; margin-top: 8px; display: none; }
+        .admin-link { color: #ff4444; text-decoration: none; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/" class="logo">ДК</a>
+        <ul class="nav-links">
+            <li><a href="/">Главная</a></li>
+            <li><a href="/profile.html">Профиль</a></li>
+        </ul>
+    </nav>
+    <div class="container">
+        <div class="profile-header">
+            <div class="avatar" id="avatar">?</div>
+            <div class="username" id="username">Загрузка...</div>
+            <div class="role user" id="role">user</div>
+            <div class="stats">
+                <div class="stat"><div class="stat-num" id="commentsCount">0</div><div class="stat-label">Комментариев</div></div>
+                <div class="stat"><div class="stat-num" id="memberSince">-</div><div class="stat-label">Участник с</div></div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Настройки профиля</h3>
+            <div style="margin-bottom:12px">
+                <label style="font-size:0.85rem;color:rgba(240,240,245,0.5);display:block;margin-bottom:4px">_bio</label>
+                <textarea id="bio" rows="3" placeholder="Расскажи о себе..."></textarea>
+            </div>
+            <button class="btn" onclick="saveProfile()">Сохранить</button>
+            <div class="success" id="profileSuccess">Сохранено!</div>
+        </div>
+
+        <div class="section">
+            <h3>Сообщения</h3>
+            <div class="messages" id="messages"><p style="color:rgba(240,240,245,0.3)">Нет сообщений</p></div>
+        </div>
+
+        <div class="section">
+            <h3>Отправить сообщение</h3>
+            <div style="margin-bottom:12px">
+                <input type="text" id="toUser" placeholder="Имя пользователя">
+            </div>
+            <div style="margin-bottom:12px">
+                <textarea id="msgText" rows="2" placeholder="Текст сообщения"></textarea>
+            </div>
+            <button class="btn" onclick="sendMessage()">Отправить</button>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+
+        async function loadProfile() {
+            const res = await fetch('/api/me');
+            const data = await res.json();
+            if (!data.loggedIn) { window.location.href = '/login.html'; return; }
+            currentUser = data;
+            document.getElementById('avatar').textContent = data.username[0].toUpperCase();
+            document.getElementById('username').textContent = data.username;
+            document.getElementById('role').textContent = data.role;
+            document.getElementById('role').className = 'role ' + data.role;
+            document.getElementById('bio').value = data.bio || '';
+            document.getElementById('memberSince').textContent = new Date(data.created_at).toLocaleDateString('ru');
+            if (data.role === 'admin') {
+                document.getElementById('role').innerHTML = 'admin <a href="/admin.html" class="admin-link">Панель</a>';
+            }
+            loadMessages();
+        }
+
+        async function loadMessages() {
+            const res = await fetch('/api/messages');
+            const msgs = await res.json();
+            const el = document.getElementById('messages');
+            if (!msgs.length) { el.innerHTML = '<p style="color:rgba(240,240,245,0.3)">Нет сообщений</p>'; return; }
+            el.innerHTML = msgs.map(m => `
+                <div class="msg">
+                    <div class="msg-from">${m.from_name}</div>
+                    <div class="msg-text">${m.text}</div>
+                    <div class="msg-time">${new Date(m.created_at).toLocaleString('ru')}</div>
+                </div>
+            `).join('');
+        }
+
+        async function saveProfile() {
+            await fetch('/api/profile', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bio: document.getElementById('bio').value })
+            });
+            const el = document.getElementById('profileSuccess');
+            el.style.display = 'block';
+            setTimeout(() => el.style.display = 'none', 2000);
+        }
+
+        async function sendMessage() {
+            const to = document.getElementById('toUser').value;
+            const text = document.getElementById('msgText').value;
+            if (!to || !text) return;
+            await fetch('/api/messages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ to_username: to, text })
+            });
+            document.getElementById('msgText').value = '';
+        }
+
+        loadProfile();
+    </script>
+</body>
+</html>
