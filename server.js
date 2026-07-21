@@ -14,7 +14,7 @@ const db = new sqlite3.Database(path.join(__dirname, 'site.db'));
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
 app.use(session({
     secret: crypto.randomBytes(32).toString('hex'),
     resave: false,
@@ -304,7 +304,7 @@ app.get('/api/admin/banned', requireAdmin, (req, res) => {
 
 // Serve main page
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 app.listen(PORT, '0.0.0.0', () => {
