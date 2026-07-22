@@ -1,29 +1,59 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const initSqlJs = require('sql.js');
 const bcrypt = require('bcrypt');
 const session = require('express-session');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+const DB_PATH = path.join(__dirname, 'site.db');
 
-// Database
-const db = new sqlite3.Database(path.join(__dirname, 'site.db'));
+let db;
 
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(__dirname));
-app.use(session({
-    secret: crypto.randomBytes(32).toString('hex'),
-    resave: false,
-    saveUninitialized: false,
-    cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
-}));
+function saveDb() {
+    const data = db.export();
+    fs.writeFileSync(DB_PATH, Buffer.from(data));
+}
 
-// Init DB
-db.serialize(() => {
+function dbRun(sql, params = []) {
+    db.run(sql, params);
+    saveDb();
+}
+
+function dbGet(sql, params = []) {
+    const stmt = db.prepare(sql);
+    stmt.bind(params);
+    let row = null;
+    if (stmt.step()) {
+        row = stmt.getAsObject();
+    }
+    stmt.free();
+    return row;
+}
+
+function dbAll(sql, params = []) {
+    const stmt = db.prepare(sql);
+    stmt.bind(params);
+    const rows = [];
+    while (stmt.step()) {
+        rows.push(stmt.getAsObject());
+    }
+    stmt.free();
+    return rows;
+}
+
+async function start() {
+    const SQL = await initSqlJs();
+
+    if (fs.existsSync(DB_PATH)) {
+        const buf = fs.readFileSync(DB_PATH);
+        db = new SQL.Database(buf);
+    } else {
+        db = new SQL.Database();
+    }
+
     db.run(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
@@ -68,10 +98,21 @@ db.serialize(() => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         page_views INTEGER DEFAULT 0,
         unique_visitors INTEGER DEFAULT 0
-    )`, () => {
-        db.run(`INSERT OR IGNORE INTO stats (id, page_views, unique_visitors) VALUES (1, 0, 0)`);
-    });
-});
+    )`);
+
+    dbRun(`INSERT OR IGNORE INTO stats (id, page_views, unique_visitors) VALUES (1, 0, 0)`);
+}
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(__dirname));
+app.use(session({
+    secret: crypto.randomBytes(32).toString('hex'),
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
+}));
 
 // Auth middleware
 function requireAuth(req, res, next) {
@@ -98,37 +139,37 @@ app.post('/api/register', (req, res) => {
         return res.status(400).json({ error: 'Пароль минимум 6 символов' });
     }
 
-    const hash = bcrypt.hashSync(password, 10);
-    db.run(`INSERT INTO users (username, email, password) VALUES (?, ?, ?)`,
-        [username, email, hash], function(err) {
-            if (err) {
-                if (err.message.includes('UNIQUE')) {
-                    return res.status(400).json({ error: 'Пользователь уже существует' });
-                }
-                return res.status(500).json({ error: 'Ошибка сервера' });
-            }
-            req.session.userId = this.lastID;
-            req.session.username = username;
-            req.session.userRole = 'user';
-            res.json({ success: true, username, role: 'user' });
-        });
+    try {
+        const existing = dbGet(`SELECT id FROM users WHERE username = ? OR email = ?`, [username, email]);
+        if (existing) {
+            return res.status(400).json({ error: 'Пользователь уже существует' });
+        }
+        const hash = bcrypt.hashSync(password, 10);
+        dbRun(`INSERT INTO users (username, email, password) VALUES (?, ?, ?)`, [username, email, hash]);
+        const user = dbGet(`SELECT id FROM users WHERE username = ?`, [username]);
+        req.session.userId = user.id;
+        req.session.username = username;
+        req.session.userRole = 'user';
+        res.json({ success: true, username, role: 'user' });
+    } catch (e) {
+        return res.status(500).json({ error: 'Ошибка сервера' });
+    }
 });
 
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
-    db.get(`SELECT * FROM users WHERE username = ?`, [username], (err, user) => {
-        if (err || !user) {
-            return res.status(401).json({ error: 'Неверный логин или пароль' });
-        }
-        if (!bcrypt.compareSync(password, user.password)) {
-            return res.status(401).json({ error: 'Неверный логин или пароль' });
-        }
-        db.run(`UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?`, [user.id]);
-        req.session.userId = user.id;
-        req.session.username = user.username;
-        req.session.userRole = user.role;
-        res.json({ success: true, username: user.username, role: user.role });
-    });
+    const user = dbGet(`SELECT * FROM users WHERE username = ?`, [username]);
+    if (!user) {
+        return res.status(401).json({ error: 'Неверный логин или пароль' });
+    }
+    if (!bcrypt.compareSync(password, user.password)) {
+        return res.status(401).json({ error: 'Неверный логин или пароль' });
+    }
+    dbRun(`UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?`, [user.id]);
+    req.session.userId = user.id;
+    req.session.username = user.username;
+    req.session.userRole = user.role;
+    res.json({ success: true, username: user.username, role: user.role });
 });
 
 app.get('/api/logout', (req, res) => {
@@ -138,22 +179,19 @@ app.get('/api/logout', (req, res) => {
 
 app.get('/api/me', (req, res) => {
     if (!req.session.userId) return res.json({ loggedIn: false });
-    db.get(`SELECT id, username, email, avatar, bio, role, created_at, last_login FROM users WHERE id = ?`,
-        [req.session.userId], (err, user) => {
-            if (err || !user) return res.json({ loggedIn: false });
-            res.json({ loggedIn: true, ...user });
-        });
+    const user = dbGet(`SELECT id, username, email, avatar, bio, role, created_at, last_login FROM users WHERE id = ?`,
+        [req.session.userId]);
+    if (!user) return res.json({ loggedIn: false });
+    res.json({ loggedIn: true, ...user });
 });
 
 // === COMMENTS ===
 
 app.get('/api/comments', (req, res) => {
-    db.all(`SELECT c.*, u.username, u.avatar FROM comments c
+    const rows = dbAll(`SELECT c.*, u.username, u.avatar FROM comments c
             LEFT JOIN users u ON c.user_id = u.id
-            ORDER BY c.created_at DESC LIMIT 50`, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: 'Ошибка' });
-        res.json(rows);
-    });
+            ORDER BY c.created_at DESC LIMIT 50`);
+    res.json(rows);
 });
 
 app.post('/api/comments', requireAuth, (req, res) => {
@@ -161,145 +199,132 @@ app.post('/api/comments', requireAuth, (req, res) => {
     if (!text || text.length > 500) {
         return res.status(400).json({ error: 'Комментарий 1-500 символов' });
     }
-    db.run(`INSERT INTO comments (user_id, text) VALUES (?, ?)`,
-        [req.session.userId, text], function(err) {
-            if (err) return res.status(500).json({ error: 'Ошибка' });
-            res.json({ success: true, id: this.lastID });
-        });
+    dbRun(`INSERT INTO comments (user_id, text) VALUES (?, ?)`, [req.session.userId, text]);
+    const row = dbGet(`SELECT last_insert_rowid() as id`);
+    res.json({ success: true, id: row.id });
 });
 
 app.delete('/api/comments/:id', requireAuth, (req, res) => {
     const id = req.params.id;
-    db.get(`SELECT * FROM comments WHERE id = ?`, [id], (err, comment) => {
-        if (!comment) return res.status(404).json({ error: 'Не найдено' });
-        if (comment.user_id !== req.session.userId && req.session.userRole !== 'admin') {
-            return res.status(403).json({ error: 'Нет прав' });
-        }
-        db.run(`DELETE FROM comments WHERE id = ?`, [id]);
-        res.json({ success: true });
-    });
+    const comment = dbGet(`SELECT * FROM comments WHERE id = ?`, [id]);
+    if (!comment) return res.status(404).json({ error: 'Не найдено' });
+    if (comment.user_id !== req.session.userId && req.session.userRole !== 'admin') {
+        return res.status(403).json({ error: 'Нет прав' });
+    }
+    dbRun(`DELETE FROM comments WHERE id = ?`, [id]);
+    res.json({ success: true });
 });
 
 // === LIKES ===
 
 app.post('/api/like', requireAuth, (req, res) => {
     const { target } = req.body;
-    db.run(`INSERT OR IGNORE INTO likes (user_id, target) VALUES (?, ?)`,
-        [req.session.userId, target], function(err) {
-            if (err) return res.status(500).json({ error: 'Ошибка' });
-            res.json({ success: true, liked: this.changes > 0 });
-        });
+    const existing = dbGet(`SELECT id FROM likes WHERE user_id = ? AND target = ?`,
+        [req.session.userId, target]);
+    if (!existing) {
+        dbRun(`INSERT INTO likes (user_id, target) VALUES (?, ?)`, [req.session.userId, target]);
+        res.json({ success: true, liked: true });
+    } else {
+        res.json({ success: true, liked: false });
+    }
 });
 
 app.delete('/api/like', requireAuth, (req, res) => {
     const { target } = req.body;
-    db.run(`DELETE FROM likes WHERE user_id = ? AND target = ?`,
-        [req.session.userId, target], function(err) {
-            res.json({ success: true, removed: this.changes > 0 });
-        });
+    const existing = dbGet(`SELECT id FROM likes WHERE user_id = ? AND target = ?`,
+        [req.session.userId, target]);
+    dbRun(`DELETE FROM likes WHERE user_id = ? AND target = ?`, [req.session.userId, target]);
+    res.json({ success: true, removed: !!existing });
 });
 
 app.get('/api/likes/:target', (req, res) => {
-    db.get(`SELECT COUNT(*) as count FROM likes WHERE target = ?`, [req.params.target], (err, row) => {
-        let liked = false;
-        if (req.session.userId) {
-            db.get(`SELECT id FROM likes WHERE user_id = ? AND target = ?`,
-                [req.session.userId, req.params.target], (err2, like) => {
-                    liked = !!like;
-                    res.json({ count: row.count, liked });
-                });
-        } else {
-            res.json({ count: row.count, liked: false });
-        }
-    });
+    const row = dbGet(`SELECT COUNT(*) as count FROM likes WHERE target = ?`, [req.params.target]);
+    let liked = false;
+    if (req.session.userId) {
+        const like = dbGet(`SELECT id FROM likes WHERE user_id = ? AND target = ?`,
+            [req.session.userId, req.params.target]);
+        liked = !!like;
+    }
+    res.json({ count: row ? row.count : 0, liked });
 });
 
 // === MESSAGES ===
 
 app.get('/api/messages', requireAuth, (req, res) => {
-    db.all(`SELECT m.*, u.username as from_name FROM messages m
+    const rows = dbAll(`SELECT m.*, u.username as from_name FROM messages m
             LEFT JOIN users u ON m.from_user = u.id
             WHERE m.to_user = ? ORDER BY m.created_at DESC`,
-        [req.session.userId], (err, rows) => {
-            res.json(rows || []);
-        });
+        [req.session.userId]);
+    res.json(rows || []);
 });
 
 app.post('/api/messages', requireAuth, (req, res) => {
     const { to_username, text } = req.body;
-    db.get(`SELECT id FROM users WHERE username = ?`, [to_username], (err, user) => {
-        if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-        db.run(`INSERT INTO messages (from_user, to_user, text) VALUES (?, ?, ?)`,
-            [req.session.userId, user.id, text]);
-        res.json({ success: true });
-    });
+    const user = dbGet(`SELECT id FROM users WHERE username = ?`, [to_username]);
+    if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+    dbRun(`INSERT INTO messages (from_user, to_user, text) VALUES (?, ?, ?)`,
+        [req.session.userId, user.id, text]);
+    res.json({ success: true });
 });
 
 // === PROFILE ===
 
 app.put('/api/profile', requireAuth, (req, res) => {
     const { bio, avatar } = req.body;
-    db.run(`UPDATE users SET bio = ?, avatar = ? WHERE id = ?`,
+    dbRun(`UPDATE users SET bio = ?, avatar = ? WHERE id = ?`,
         [bio || '', avatar || '', req.session.userId]);
     res.json({ success: true });
 });
 
 app.get('/api/user/:username', (req, res) => {
-    db.get(`SELECT id, username, avatar, bio, role, created_at FROM users WHERE username = ?`,
-        [req.params.username], (err, user) => {
-            if (!user) return res.status(404).json({ error: 'Не найден' });
-            db.get(`SELECT COUNT(*) as count FROM comments WHERE user_id = ?`, [user.id], (err2, row) => {
-                user.comments_count = row.count;
-                res.json(user);
-            });
-        });
+    const user = dbGet(`SELECT id, username, avatar, bio, role, created_at FROM users WHERE username = ?`,
+        [req.params.username]);
+    if (!user) return res.status(404).json({ error: 'Не найден' });
+    const row = dbGet(`SELECT COUNT(*) as count FROM comments WHERE user_id = ?`, [user.id]);
+    user.comments_count = row ? row.count : 0;
+    res.json(user);
 });
 
 // === STATS ===
 
 app.get('/api/stats', (req, res) => {
-    db.get(`SELECT * FROM stats WHERE id = 1`, (err, row) => {
-        db.get(`SELECT COUNT(*) as users FROM users`, (err2, u) => {
-            db.get(`SELECT COUNT(*) as comments FROM comments`, (err3, c) => {
-                res.json({
-                    page_views: row ? row.page_views : 0,
-                    users: u ? u.users : 0,
-                    comments: c ? c.comments : 0
-                });
-            });
-        });
+    const row = dbGet(`SELECT * FROM stats WHERE id = 1`);
+    const u = dbGet(`SELECT COUNT(*) as users FROM users`);
+    const c = dbGet(`SELECT COUNT(*) as comments FROM comments`);
+    res.json({
+        page_views: row ? row.page_views : 0,
+        users: u ? u.users : 0,
+        comments: c ? c.comments : 0
     });
 });
 
 app.post('/api/view', (req, res) => {
-    db.run(`UPDATE stats SET page_views = page_views + 1 WHERE id = 1`);
+    dbRun(`UPDATE stats SET page_views = page_views + 1 WHERE id = 1`);
     res.json({ success: true });
 });
 
 // === ADMIN ===
 
 app.get('/api/admin/users', requireAdmin, (req, res) => {
-    db.all(`SELECT id, username, email, role, created_at, last_login FROM users`, [], (err, rows) => {
-        res.json(rows || []);
-    });
+    const rows = dbAll(`SELECT id, username, email, role, created_at, last_login FROM users`);
+    res.json(rows || []);
 });
 
 app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
-    db.run(`DELETE FROM users WHERE id = ? AND role != 'admin'`, [req.params.id]);
+    dbRun(`DELETE FROM users WHERE id = ? AND role != 'admin'`, [req.params.id]);
     res.json({ success: true });
 });
 
 app.put('/api/admin/users/:id/role', requireAdmin, (req, res) => {
     const { role } = req.body;
     if (!['user', 'admin', 'banned'].includes(role)) return res.status(400).json({ error: 'Неверная роль' });
-    db.run(`UPDATE users SET role = ? WHERE id = ?`, [role, req.params.id]);
+    dbRun(`UPDATE users SET role = ? WHERE id = ?`, [role, req.params.id]);
     res.json({ success: true });
 });
 
 app.get('/api/admin/banned', requireAdmin, (req, res) => {
-    db.all(`SELECT id, username, email, created_at FROM users WHERE role = 'banned'`, [], (err, rows) => {
-        res.json(rows || []);
-    });
+    const rows = dbAll(`SELECT id, username, email, created_at FROM users WHERE role = 'banned'`);
+    res.json(rows || []);
 });
 
 // Serve main page
@@ -307,6 +332,11 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Сервер запущен: http://localhost:${PORT}`);
+start().then(() => {
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Сервер запущен: http://localhost:${PORT}`);
+    });
+}).catch(err => {
+    console.error('Ошибка запуска:', err);
+    process.exit(1);
 });

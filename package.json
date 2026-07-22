@@ -2,10 +2,9 @@
   "name": "denis-site",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
   "keywords": [],
   "author": "",
@@ -14,7 +13,6 @@
     "bcrypt": "^6.0.0",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
-    "pm2": "^7.0.3",
-    "sqlite3": "^6.0.1"
+    "sql.js": "^1.11.0"
   }
 }
